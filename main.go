@@ -1,8 +1,8 @@
 package main
 
 import (
-	"bufio"
 	"encoding/binary"
+	"io"
 	"log"
 	"strconv"
 	"time"
@@ -137,7 +137,9 @@ func createPort(n int) (*serial.Port, error) {
 func readPort(n int) error {
 
 	port := ports[n]
-	reader := bufio.NewReader(port)
+	line := make([]byte, 63)
+	//port.Read(buf)
+	//reader := bufio.NewReader(port)
 
 	log.Println("Waiting for serial port", strconv.Itoa(n), "data ...")
 
@@ -158,8 +160,15 @@ func readPort(n int) error {
 	var accs [6]Acceleration
 	var force Force
 
+	l, err := port.Read(line)
+	if l < 30 {
+		// hot fix to align with packet boundaries
+		port.Read(line)
+	}
+
 	for {
-		line, err := reader.ReadBytes('\n')
+		l, err = io.ReadFull(port, line)
+		//line, err := reader.ReadBytes('\n')
 		if ports[n] != port {
 			log.Println("serial port", n, "dropped.")
 			return nil
@@ -168,17 +177,33 @@ func readPort(n int) error {
 			log.Println("serial port", n, "read error:", err)
 			return err
 		}
-		if len(line) != 63 {
-			// log.Println("Invalid line. ", line)
+		if l != 63 {
+			avg.Dropps++
+			log.Print("Dropped:", l)
+			continue
+		}
+
+		//if len(line) != 63 {
+		// log.Println("Invalid line. ", line)
+		//	avg.Dropps++
+		//	continue
+		//}
+
+		// n := int(line[9]-'0')*100 + int(line[10]-'0')*10 + int(line[11]-'0')
+
+		avg.Packets++
+
+		if len(line) < 13 {
 			avg.Dropps++
 			continue
 		}
 
-		avg.Packets++
-
-		// n := int(line[9]-'0')*100 + int(line[10]-'0')*10 + int(line[11]-'0')
-
 		if line[13] == 'A' {
+
+			if len(line) < 50 {
+				avg.Dropps++
+				continue
+			}
 
 			o := 14
 			for i := 0; i < 6; i++ {
@@ -201,10 +226,28 @@ func readPort(n int) error {
 
 			// wazihub.PostValues(device.Id, sensor, accs)
 		} else if line[13] == 'P' {
+
+			if len(line) < 38 {
+				avg.Dropps++
+				continue
+			}
+
 			force = readForce(line[14:])
 			avg.PValues++
 			for i := 0; i < 6; i++ {
 				avg.Force[i] += force[i]
+			}
+		} else if line[13] == 'p' {
+
+			if len(line) < 38 {
+				avg.Dropps++
+				continue
+			}
+
+			force = readForce(line[14:])
+			avg.P2Values++
+			for i := 0; i < 6; i++ {
+				avg.Force2[i] += force[i]
 			}
 		}
 
@@ -219,6 +262,11 @@ func readPort(n int) error {
 			if avg.PValues != 0 {
 				for i := 0; i < 6; i++ {
 					avg.Force[i] /= avg.PValues
+				}
+			}
+			if avg.P2Values != 0 {
+				for i := 0; i < 6; i++ {
+					avg.Force2[i] /= avg.P2Values
 				}
 			}
 

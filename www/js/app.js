@@ -119,43 +119,36 @@ track.height = trackHeight;
 var trackings = [];
 const ctx = track.getContext("2d");
 var lastTime = 0;
+var lastPos = null;
 
-function onPositionData(msg) {
-  trackings.push(msg);
-  ctx.clearRect(0, 0, track.width, track.height);
+function onPositionData(pos) {
+  //trackings.push(msg);
+  //ctx.clearRect(0, 0, track.width, track.height);
 
-  if (trackings.length > 20) {
-    trackings.unshift();
-  }
+  // if (trackings.length > 20) {
+  //   trackings.unshift();
+  // }
 
-  for (var i=0; i<trackings.length-1; i++) {
+  ctx.fillStyle = "rgba(255,255,255,0.1)";
+  ctx.fillRect(0, 0, track.width, track.height);
+
+  if (lastPos != null) {
     ctx.beginPath();
-    ctx.moveTo(trackings[i].x/4*trackWidth, trackings[i].y/3*trackHeight);
-    ctx.lineTo(trackings[i+1].x/4*trackWidth, trackings[i+1].y/3*trackHeight);
+    ctx.moveTo(lastPos.x/4*trackWidth, lastPos.y/3*trackHeight);
+    ctx.lineTo(pos.x/4*trackWidth, pos.y/3*trackHeight);
+    ctx.lineWidth = 2;
     ctx.stroke();
-
-    ctx.beginPath();
-    ctx.rect(0, 0, track.width, track.height);
-    ctx.fillStyle = "rgba(255, 255, 255, 0.1)";
-    ctx.fill();
   }
 
   ctx.beginPath();
-  ctx.arc(msg.x/4*trackWidth, msg.y/3*trackHeight, msg.accuracyRadius/4*trackWidth, 0, 2 * Math.PI);
-  ctx.strokeStyle = 'blue';
-  ctx.stroke();
-  ctx.fillStyle = "rgba(80, 80, 255, 0.1)";
-  ctx.fill();
-
-  ctx.beginPath();
-  ctx.arc(msg.x/4*trackWidth, msg.y/3*trackHeight, 3, 0, 2 * Math.PI);
+  ctx.arc(pos.x/4*trackWidth, pos.y/3*trackHeight, 4, 0, 2 * Math.PI);
   ctx.fillStyle = "blue";
   ctx.fill();
 
-  var time = new Date(parseInt(msg.timestamp));
+  var time = new Date(parseInt(pos.timestamp));
   if (lastTime != 0) {
-    var dx = msg.x-trackings[trackings.length-2].x
-    var dy = msg.y-trackings[trackings.length-2].y
+    var dx = pos.x-lastPos.x
+    var dy = pos.y-lastPos.y
     var d = Math.sqrt(Math.pow(dx, 2)+Math.pow(dy, 2))
     var dt = time-lastTime;
     if (dt != 0) {
@@ -167,6 +160,7 @@ function onPositionData(msg) {
       }
     }
   }
+  lastPos = pos;
   lastTime = time;
 }
 
@@ -255,7 +249,7 @@ var chartP = new Chart('chartP', {
       yAxes: [{
         ticks: {
           padding: -80,
-          beginAtZero: true,
+  //        beginAtZero: true,
         },
       }]
   		//yAxes: [{

@@ -9,11 +9,11 @@ type Acceleration struct {
 type Force [6]int32
 
 type Avg struct {
-	Min, Mean, Max  Acceleration
-	Force           Force
-	AValues         int32
-	PValues         int32
-	Packets, Dropps int64
+	Min, Mean, Max    Acceleration
+	Force, Force2     Force
+	AValues           int32
+	PValues, P2Values int32
+	Packets, Dropps   int64
 }
 
 type ValuesPerSecond struct {
