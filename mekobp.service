@@ -1,0 +1,17 @@
+[Unit]
+Description=MEKOB-P
+ConditionPathExists=/home/pi/go/bin/MEKOB-P
+After=wazihub.service
+
+[Service]
+Type=simple
+LimitNOFILE=1024
+
+Restart=on-failure
+RestartSec=3
+
+WorkingDirectory=/home/pi/go/src/github.com/j-forster/MEKOB-P
+ExecStart=/home/pi/go/bin/MEKOB-P
+
+[Install]
+WantedBy=multi-user.target

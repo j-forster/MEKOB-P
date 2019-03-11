@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="theme-color" content="#f1f1f1">
+  <meta name="viewport" content="width=device-width">
+  <link rel="stylesheet" href="css/content.min.css">
+  <link rel="stylesheet" href="css/ol.css">
+  <title>MEKOB-P</title>
+</head>
+<body>
+  <div class="header">
+    <img src="img/zaft.png" alt="ZAFT">
+    <h1>MEKOB-P</h1>
+  </div>
+  <div class="status" id="status">Please wait...</div>
+  <div id="body">
+    <select id="views">
+      <option value="z1">Z-Axis - 1 Hoof</option>
+      <option value="a1">All Axis - 1 Hoof</option>
+      <option value="z4">Z-Axis - All Hoofs</option>
+      <option value="a4">All Axis - All Hoofs</option>
+      <option value="w">Walking Tracker</option>
+      <option value="c">Connection Data</option>
+    </select>
+
+    <div id="tracker" style="display:none">
+      <p>
+        Size: <input type="text" id="track-width" value="4">m x <input type="text" id="track-height" value="3">m
+      </p>
+      <p id="speed">Walking speed: (pending)</p>
+      <canvas id="track"></canvas>
+    </div>
+
+    <div id="chart-box-A"><canvas id="chartA"></canvas></div>
+    <div id="chart-box-P"><canvas id="chartP"></canvas></div>
+    <button id="start" onclick="start()">S<span class="orange">T</span>ART</button>
+    <button id="stop" style="display:none" onclick="stop()">S<span class="orange">T</span>OP</button>
+  </div>
+  <div id="map"></div>
+  <div id="map-opener" onclick="toggleMap()"><img src="img/map.svg" alt="open map"><div>
+
+  <script src="js/jquery-3.3.1.min.js"></script>
+  <script src="js/chart-2.7.3.js"></script>
+  <script src="js/ol.js"></script>
+  <script src="js/mqttws31.js"></script>
+  <script src="js/app.js"></script>
+  <script src="js/map.js"></script>
+</body>
+</html>
