@@ -7,7 +7,7 @@ After=wazihub.service
 Type=simple
 LimitNOFILE=1024
 
-Restart=on-failure
+Restart=always
 RestartSec=3
 
 WorkingDirectory=/home/pi/go/src/github.com/j-forster/MEKOB-P

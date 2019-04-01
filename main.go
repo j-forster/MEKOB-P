@@ -2,9 +2,11 @@ package main
 
 import (
 	"encoding/binary"
+	"errors"
 	"io"
 	"log"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/j-forster/Wazihub-API"
@@ -17,6 +19,16 @@ import (
 
 const BoundsXYZ = 100000
 
+const PktLength = 34
+const PosPktIdentifier = 7
+
+var codeStart = []byte("W\r")
+
+var codeStop = []byte("w\r")
+var codeReset = []byte("R\r")
+var codeSleep = []byte("S\r")
+var codeSync = []byte("CTc\r")
+
 //var liveness chan struct{}
 
 var ports [4]*serial.Port
@@ -24,7 +36,7 @@ var ports [4]*serial.Port
 func main() {
 	host.Init()
 	log.SetFlags(0) // remove timestamps from log
-	log.Println("MEKOB-P")
+	log.Println("[      ] MEKOB-P")
 
 	//////////
 
@@ -38,7 +50,7 @@ func main() {
 
 	// The ID of the device this program is running on.
 	// We use 'CurrentDeviceId' to create a unique Id for this device.
-	log.Println("This device id is:", device.Id)
+	log.Println("[      ] This device id is:", device.Id)
 
 	//////////
 
@@ -54,7 +66,8 @@ func main() {
 	if err != nil {
 		Fatal("Failed to register!", err)
 	}
-	log.Println("Device registered!")
+	log.Println("[      ] Device registered!")
+	log.Println("[      ] ---------------------------")
 
 	//////////
 
@@ -67,6 +80,23 @@ func main() {
 	isMeasuring := false
 	ticker := time.NewTicker(500 * time.Millisecond)
 
+	ports[0], err = createPort(0)
+	if err != nil {
+		wazihub.PostValues(device.Id, "event", EventError{err.Error()})
+		log.Println("[UART  ] Port 0 error:", err)
+		return
+	}
+	n := 1
+	go readPort(0)
+	for i := 1; i < 4; i++ {
+		ports[i], _ = createPort(i)
+		if ports[i] != nil {
+			go readPort(i)
+			n++
+		}
+	}
+	log.Println("[UART  ] Total", n, "ports available.")
+
 	actuation, _ := wazihub.Actuation(device.Id, "event")
 	for {
 		select {
@@ -74,41 +104,69 @@ func main() {
 			switch event {
 
 			case "\"start\"":
-				log.Println("Event: Start")
+				log.Println("[Event ] !! Start !!")
 
-				ports[0], err = createPort(0)
-				if err != nil {
-					wazihub.PostValues(device.Id, "event", EventError{err.Error()})
-					log.Println("Port 0 error:", err)
-					return
-				}
-				n := 1
-				go readPort(0)
-				for i := 1; i < 4; i++ {
-					ports[i], _ = createPort(i)
-					if ports[i] != nil {
-						go readPort(i)
-						n++
+				for i, port := range ports {
+					if port != nil {
+						port.Write([]byte(codeStart))
+						log.Println("[UART  ] Port", i, "send:", strings.TrimSpace(string(codeStart)))
+						log.Println("[UART  ] Port", i, "started.")
 					}
 				}
+
 				isMeasuring = true
-				log.Println("Total", n, "ports available.")
 				wazihub.PostValues(device.Id, "event", EventStart{n})
 
 			case "\"stop\"":
-				log.Println("Event: Stop")
+				log.Println("[Event ] !! Stop !!")
 				for i, port := range ports {
 					if port != nil {
-						port.Close()
-						log.Println("Port", i, "closed.")
-						ports[i] = nil
+						port.Write([]byte(codeStop))
+						log.Println("[UART  ] Port", i, "send:", strings.TrimSpace(string(codeStop)))
+						log.Println("[UART  ] Port", i, "stopped.")
+					}
+				}
+				isMeasuring = false
+				gpio23.Out(gpio.Level(false))
+
+			case "\"reset\"":
+				log.Println("[Event ] !! Reset !!")
+				for i, port := range ports {
+					if port != nil {
+						port.Write([]byte(codeReset))
+						log.Println("[UART  ] Port", i, "send:", strings.TrimSpace(string(codeReset)))
+						log.Println("[UART  ] Port", i, "resetted.")
+					}
+				}
+				isMeasuring = false
+				gpio23.Out(gpio.Level(false))
+
+			case "\"sleep\"":
+				log.Println("[Event ] !! Sleep !!")
+				for i, port := range ports {
+					if port != nil {
+						port.Write([]byte(codeSleep))
+						log.Println("[UART  ] Port", i, "send:", strings.TrimSpace(string(codeSleep)))
+						log.Println("[UART  ] Port", i, "sleeping.")
+					}
+				}
+				isMeasuring = false
+				gpio23.Out(gpio.Level(false))
+
+			case "\"sync\"":
+				log.Println("[Event ] !! Sync !!")
+				for i, port := range ports {
+					if port != nil {
+						port.Write([]byte(codeSync))
+						log.Println("[UART  ] Port", i, "send:", strings.TrimSpace(string(codeSync)))
+						log.Println("[UART  ] Port", i, "synced.")
 					}
 				}
 				isMeasuring = false
 				gpio23.Out(gpio.Level(false))
 
 			default:
-				log.Println("Unknown actuation:", event)
+				log.Println("[Event ] Unknown actuation:", event)
 				wazihub.PostValues(device.Id, "event", EventError{"Unknown Event"})
 			}
 
@@ -134,14 +192,53 @@ func createPort(n int) (*serial.Port, error) {
 	return port, nil
 }
 
+var errNoPattern = errors.New("Pattern not found.")
+
+func syncPort(n int) error {
+	o := 0
+	port := ports[n]
+	line := make([]byte, PktLength)
+	pattern := make([]byte, 4)
+	for pattern[0] != 13 && pattern[1] != 10 && pattern[2] != 0xca && pattern[3] != 0xfe {
+		pattern[0] = pattern[1]
+		pattern[1] = pattern[2]
+		pattern[2] = pattern[3]
+		_, err := port.Read(pattern[3:])
+		if err != nil {
+			return err
+		}
+		o++
+		if o > 2*PktLength {
+			return errNoPattern
+		}
+	}
+	port.Read(line[2:])
+	return nil
+}
+
 func readPort(n int) error {
 
 	port := ports[n]
-	line := make([]byte, 63)
+	line := make([]byte, PktLength)
 	//port.Read(buf)
 	//reader := bufio.NewReader(port)
 
-	log.Println("Waiting for serial port", strconv.Itoa(n), "data ...")
+	port.Write([]byte(codeReset))
+	log.Println("[UART  ] Port", n, "send:", strings.TrimSpace(string(codeReset)))
+	log.Println("[UART  ] Port", n, "resetted.")
+
+	log.Println("[UART  ] Port", n, "started ...")
+	log.Println("[UART  ] Waiting for serial port", n, "data ...")
+	var err error
+
+	for i := 0; i < 3; i++ {
+		err = syncPort(n)
+		if err != nil {
+			return err
+		}
+	}
+
+	log.Println("[UART  ] Port", n, "synced ...")
 
 	stepTime := time.Now()
 	//begin := time.Now()
@@ -155,13 +252,16 @@ func readPort(n int) error {
 	avg.Max.Y = -BoundsXYZ
 	avg.Max.Z = -BoundsXYZ
 
-	// sensor := "acc" + strconv.Itoa(n)
+	sensor := "acc" + strconv.Itoa(n)
 	sensorCondensed := ".acc" + strconv.Itoa(n)
 	var accs [6]Acceleration
 	var force Force
 
 	l, err := port.Read(line)
-	if l < 30 {
+	if err != nil {
+		return err
+	}
+	if l < 15 {
 		// hot fix to align with packet boundaries
 		port.Read(line)
 	}
@@ -170,18 +270,25 @@ func readPort(n int) error {
 		l, err = io.ReadFull(port, line)
 		//line, err := reader.ReadBytes('\n')
 		if ports[n] != port {
-			log.Println("serial port", n, "dropped.")
+			log.Println("[UART  ] Port", n, "dropped.")
 			return nil
 		}
 		if err != nil {
-			log.Println("serial port", n, "read error:", err)
+			log.Println("[UART  ] Port", n, "read error:", err)
 			return err
 		}
-		if l != 63 {
+		if l != PktLength {
 			avg.Dropps++
-			log.Print("Dropped:", l)
+			log.Print("[UART  ] Port", n, "dropped (length):", l)
 			continue
 		}
+		if line[0] != 0xca || line[1] != 0xfe {
+			avg.Dropps++
+			log.Print("[UART  ] Port", n, "dropped (0xcafe) [", l, "] ", line)
+			continue
+		}
+
+		//log.Print("Port ", n, " ok", line)
 
 		//if len(line) != 63 {
 		// log.Println("Invalid line. ", line)
@@ -192,22 +299,11 @@ func readPort(n int) error {
 		// n := int(line[9]-'0')*100 + int(line[10]-'0')*10 + int(line[11]-'0')
 
 		avg.Packets++
-
-		if len(line) < 13 {
-			avg.Dropps++
-			continue
-		}
-
-		if line[13] == 'A' {
-
-			if len(line) < 50 {
-				avg.Dropps++
-				continue
-			}
-
-			o := 14
-			for i := 0; i < 6; i++ {
-				accs[i] = readAcceleration(line[o:])
+		switch line[PosPktIdentifier] {
+		case 'A':
+			o := PosPktIdentifier + 1
+			for i := 0; i < 2; i++ {
+				accs[i] = readAcceleration(line[o:]) // 6
 				o += 6
 				if accs[i].X == 0 && accs[i].Y == 0 && accs[i].Z == 0 {
 					continue
@@ -223,32 +319,32 @@ func readPort(n int) error {
 				avg.Max.Y = max(avg.Max.Y, accs[i].Y)
 				avg.Max.Z = max(avg.Max.Z, accs[i].Z)
 			}
+			//log.Print("Port ", n, " accs ", accs)
+			wazihub.PostValues(device.Id, sensor, accs)
 
-			// wazihub.PostValues(device.Id, sensor, accs)
-		} else if line[13] == 'P' {
+		case 'P':
 
-			if len(line) < 38 {
-				avg.Dropps++
-				continue
-			}
-
-			force = readForce(line[14:])
+			o := PosPktIdentifier + 1
+			force = readForce(line[o:]) // 24B
 			avg.PValues++
 			for i := 0; i < 6; i++ {
 				avg.Force[i] += force[i]
 			}
-		} else if line[13] == 'p' {
 
-			if len(line) < 38 {
-				avg.Dropps++
-				continue
-			}
+		case 'p':
 
-			force = readForce(line[14:])
+			o := PosPktIdentifier + 1
+			force = readForce(line[o:]) // 24B
 			avg.P2Values++
 			for i := 0; i < 6; i++ {
 				avg.Force2[i] += force[i]
 			}
+
+		case 'i':
+			o := PosPktIdentifier + 1
+			str := strings.TrimSpace(string(line[o:]))
+			log.Println("[UART  ] Port", n, "Info:", str)
+			wazihub.PostValues(device.Id, "info", str)
 		}
 
 		if time.Since(stepTime) > time.Second/5 {
@@ -271,6 +367,7 @@ func readPort(n int) error {
 			}
 
 			wazihub.PostValue(device.Id, sensorCondensed, &avg)
+			log.Println("[UART  ] Port", n, "Data: A", avg.AValues, "P", avg.PValues, "P2", avg.P2Values, "X", avg.Dropps)
 			//liveness <- struct{}{}
 			avg = Avg{}
 			avg.Min.X = BoundsXYZ
